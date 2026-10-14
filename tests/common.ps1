@@ -7,6 +7,31 @@ using namespace System.Text
 
 $ErrorActionPreference = 'Stop'
 
+# Windows PowerShell 5.1 only runs on Windows and does not define $IsWindows.
+if ($PSVersionTable.PSVersion.Major -lt 6) {
+    $IsWindows = $true
+}
+
+# The characters used by Format-PSRPPacket. Windows PowerShell reads a file
+# without a BOM with the ANSI code page, keep the test files ASCII and use
+# these instead of the literal characters.
+$Esc = [string][char]0x1B
+$Bar = [string][char]0x2502
+$Line = [string][char]0x2500
+$Tee = [string][char]0x251C
+$Elbow = [string][char]0x2514
+$ToServer = [string][char]0x25B6
+$ToClient = [string][char]0x25C0
+$Bullet = [string][char]0x2022
+$RightArrow = [string][char]0x2192
+$Return = [string][char]0x21B5
+$Dot = [string][char]0x00B7
+$Ellipsis = [string][char]0x2026
+$LAngle = [string][char]0x2039
+$RAngle = [string][char]0x203A
+$EnDash = [string][char]0x2013
+$RQuote = [string][char]0x2019
+
 # Builds a PSRP message, the 40 byte header followed by the data.
 Function New-PSRPMessage {
     [OutputType([byte[]])]
@@ -87,7 +112,14 @@ Function New-PSRPFragment {
     [BinaryPrimitives]::WriteInt64BigEndian(
         [ArraySegment[byte]]::new($fragBytes, 8, 8),
         $FragmentId)
-    $fragBytes[16] = ($Start ? 1 : 0) -bor ($End ? 2 : 0)
+    $flags = 0
+    if ($Start) {
+        $flags = $flags -bor 1
+    }
+    if ($End) {
+        $flags = $flags -bor 2
+    }
+    $fragBytes[16] = $flags
     [BinaryPrimitives]::WriteInt32BigEndian(
         [ArraySegment[byte]]::new($fragBytes, 17, 4),
         $BlobLength)
@@ -193,7 +225,7 @@ Function Get-MessageSummary {
         $lines | ConvertTo-PSRPPacket -ErrorAction Stop |
             Format-PSRPPacket -View Grouped -NoColor -Width 1000 |
             ForEach-Object {
-                if ($_ -match '([▶◀•]) (\w+)\s+(.*)$') {
+                if ($_ -match "([${ToServer}${ToClient}${Bullet}]) (\w+)\s+(.*)`$") {
                     [PSCustomObject]@{
                         Arrow = $Matches[1]
                         MessageType = $Matches[2]

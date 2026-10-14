@@ -105,6 +105,14 @@ Gotchas:
   classic `Should -Be` form is disabled in the test run and fails.
 - Write test files through the file system path in `$TestDrive`, not a
   `TestDrive:` path.
+- The tests also run on Windows PowerShell 5.1. Avoid PowerShell 7 only
+  syntax like the ternary `?:`, `??`, `?.`, `&&`, `||` and the `` `e `` or
+  `` `u{} `` escapes.
+- Keep the `.ps1` files ASCII, without a BOM. Windows PowerShell reads them
+  with the ANSI code page. Use the character variables in `common.ps1`, like
+  `$Bar` or `$Esc`, or `[char]0x2502` for a non-ASCII character. A file
+  using them in `-ForEach` test cases also dot-sources `common.ps1` in
+  `BeforeDiscovery`.
 - New .NET unit test projects go in `tests/units/<Name>/` using TUnit, with
   `<OutputType>Exe</OutputType>`.
 

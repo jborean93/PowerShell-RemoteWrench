@@ -1,6 +1,9 @@
 using module ../output/RemoteWrench
 using namespace System.IO
 
+# The -ForEach test cases use the character variables of common.ps1.
+BeforeDiscovery { . ([Path]::Combine($PSScriptRoot, 'common.ps1')) }
+
 BeforeAll {
     . ([Path]::Combine($PSScriptRoot, 'common.ps1'))
 
@@ -39,27 +42,27 @@ Describe "Format-PSRPPacket" {
     ) {
         $packets = $simple | ConvertTo-PSRPPacket
 
-        ($packets | Format-PSRPPacket -View $View -Width 120) -join "`n" | Should-MatchString "`e\["
-        ($packets | Format-PSRPPacket -View $View -Width 120 -NoColor) -join "`n" | Should-NotMatchString "`e"
+        ($packets | Format-PSRPPacket -View $View -Width 120) -join "`n" | Should-MatchString "${Esc}\["
+        ($packets | Format-PSRPPacket -View $View -Width 120 -NoColor) -join "`n" | Should-NotMatchString $Esc
     }
 
     It "Supports the NoColour alias" {
         $packets = $simple | ConvertTo-PSRPPacket
-        ($packets | Format-PSRPPacket -NoColour -Width 120) -join "`n" | Should-NotMatchString "`e"
+        ($packets | Format-PSRPPacket -NoColour -Width 120) -join "`n" | Should-NotMatchString $Esc
     }
 
     It "Uses the buffer width of a host" {
         $packets = $simple | ConvertTo-PSRPPacket
         $actual = Invoke-FormatInTestHost -Packet $packets -Width 150
 
-        $actual[1] | Should-Be ('─' * 150)
+        $actual[1] | Should-Be ($Line * 150)
     }
 
     It "Uses 120 when the host cannot get the buffer width" {
         $packets = $simple | ConvertTo-PSRPPacket
         $actual = Invoke-FormatInTestHost -Packet $packets -ThrowOnBufferSize
 
-        $actual[1] | Should-Be ('─' * 120)
+        $actual[1] | Should-Be ($Line * 120)
     }
 
     It "Uses 120 when the host <Name>" -ForEach @(
@@ -72,7 +75,7 @@ Describe "Format-PSRPPacket" {
         $packets = $simple | ConvertTo-PSRPPacket
         $actual = Invoke-FormatInTestHost -Packet $packets @HostParams
 
-        $actual[1] | Should-Be ('─' * 120)
+        $actual[1] | Should-Be ($Line * 120)
     }
 
     It "Uses the host buffer width by default" {
@@ -84,7 +87,7 @@ Describe "Format-PSRPPacket" {
 
         $actual = $simple | ConvertTo-PSRPPacket | Format-PSRPPacket -NoColor
 
-        $actual[1] | Should-Be ('─' * $expected)
+        $actual[1] | Should-Be ($Line * $expected)
     }
 
     It "Does not warn about the console encoding outside of Windows" -Skip:$IsWindows {
@@ -177,10 +180,10 @@ Describe "Format-PSRPPacket -View Timeline" {
 
         $actual | Should-BeCollection @(
             '   # Dir Packet     PSGuid   Message                  Obj:Frag       Size Summary'
-            '─' * 120
-            '   1 C→S Command    22222222                                              create pipeline'
-            '   2 S→C Data       22222222 PipelineOutput           5:0 SE          52B "value"'
-            '   3 S→C DataAck    22222222'
+            $Line * 120
+            "   1 C${RightArrow}S Command    22222222                                              create pipeline"
+            "   2 S${RightArrow}C Data       22222222 PipelineOutput           5:0 SE          52B `"value`""
+            "   3 S${RightArrow}C DataAck    22222222"
         )
     }
 
@@ -189,10 +192,10 @@ Describe "Format-PSRPPacket -View Timeline" {
 
         $actual | Should-BeCollection @(
             '   # Dir Packet     Message                  Obj:Frag    Summary'
-            '─' * 100
-            '   1 C→S Command                                         create pipeline'
-            '   2 S→C Data       PipelineOutput           5:0 SE      "value"'
-            '   3 S→C DataAck'
+            $Line * 100
+            "   1 C${RightArrow}S Command                                         create pipeline"
+            "   2 S${RightArrow}C Data       PipelineOutput           5:0 SE      `"value`""
+            "   3 S${RightArrow}C DataAck"
         )
     }
 
@@ -201,7 +204,7 @@ Describe "Format-PSRPPacket -View Timeline" {
         $actual = $packet | ConvertTo-PSRPPacket | Format-PSRPPacket -View Timeline -NoColor -Width 120
 
         $actual[2].Length | Should-Be 120
-        $actual[2] | Should-BeLikeString '* "aaa*a…'
+        $actual[2] | Should-BeLikeString "* `"aaa*a${Ellipsis}"
     }
 
     It "Formats a row per fragment" {
@@ -210,9 +213,9 @@ Describe "Format-PSRPPacket -View Timeline" {
             Select-Object -Skip 2
 
         $actual | Should-BeCollection -Count 3
-        $actual[0] | Should-BeLikeString '   1 S→C Data       c8cf479a ‹fragment›               327:0 S        32KB start of a fragmented message'
-        $actual[1] | Should-BeLikeString '   2 S→C Data       c8cf479a ‹fragment›               327:1          32KB continued'
-        $actual[2] | Should-BeLikeString '   3 S→C Data       c8cf479a PipelineOutput           327:2  E       65KB "aaaa*'
+        $actual[0] | Should-BeLikeString "   1 S${RightArrow}C Data       c8cf479a ${LAngle}fragment${RAngle}               327:0 S        32KB start of a fragmented message"
+        $actual[1] | Should-BeLikeString "   2 S${RightArrow}C Data       c8cf479a ${LAngle}fragment${RAngle}               327:1          32KB continued"
+        $actual[2] | Should-BeLikeString "   3 S${RightArrow}C Data       c8cf479a PipelineOutput           327:2  E       65KB `"aaaa*"
     }
 
     It "Formats a row per message with the packet details on the first" {
@@ -221,8 +224,8 @@ Describe "Format-PSRPPacket -View Timeline" {
             Select-Object -Skip 2
 
         $actual | Should-BeCollection @(
-            '   1 C→S Data       00000000 SessionCapability        1:0 SE         199B protocol 2.4, PS 2.0, serialization 1.1.0.1'
-            '     C→S                     InitRunspacePool         2:0 SE        3.7KB min 1, max 1, client PS 7.6.6'
+            "   1 C${RightArrow}S Data       00000000 SessionCapability        1:0 SE         199B protocol 2.4, PS 2.0, serialization 1.1.0.1"
+            "     C${RightArrow}S                     InitRunspacePool         2:0 SE        3.7KB min 1, max 1, client PS 7.6.6"
         )
     }
 
@@ -230,7 +233,7 @@ Describe "Format-PSRPPacket -View Timeline" {
         $session = Get-TestData psrp-session.txt | ConvertTo-PSRPPacket
         $actual = $session | Format-PSRPPacket -View Timeline -Width 120 | Where-Object { $_ -match 'ErrorRecord' }
 
-        $actual.Contains("`e[31man error") | Should-BeTrue
+        $actual.Contains("${Esc}[31man error") | Should-BeTrue
     }
 }
 
@@ -240,38 +243,38 @@ Describe "Format-PSRPPacket -View Grouped" {
 
         $actual | Should-BeCollection @(
             'RunspacePool 11111111-1111-1111-1111-111111111111'
-            '├─ Pipeline 22222222-2222-2222-2222-222222222222'
-            '│  │ ◀ PipelineOutput           "value"'
+            "${Tee}${Line} Pipeline 22222222-2222-2222-2222-222222222222"
+            "${Bar}  ${Bar} ${ToClient} PipelineOutput           `"value`""
         )
     }
 
     It "Writes a continued header when concurrent pipelines interleave" {
         $actual = Get-TestData psrp-fragments.txt | ConvertTo-PSRPPacket |
             Format-PSRPPacket -View Grouped -NoColor -Width 120 |
-            Where-Object { $_ -notlike '│  │*' } |
+            Where-Object { $_ -notlike "${Bar}  ${Bar}*" } |
             ForEach-Object { $_ -replace '\s{2,}.*' }
 
         $actual | Should-BeCollection @(
             'RunspacePool 83ec94f1-f56d-4de7-b4c9-db80ee3bf554'
-            '│ ▶ SessionCapability'
-            '│ ▶ InitRunspacePool'
-            '│ ◀ SessionCapability'
-            '│ ◀ PipelineState'
-            '│ ◀ ApplicationPrivateData'
-            '│ ◀ RunspacePoolState'
-            '├─ Pipeline 6a8eb54b-1d71-434e-a4c6-a862e94df370'
-            '├─ Pipeline ec459654-0832-4d7f-9760-b2b384519afb'
-            '├─ Pipeline 203d3125-97cc-491d-aaf8-79efbe5a86bd'
-            '├─ Pipeline ec459654-0832-4d7f-9760-b2b384519afb (continued)'
-            '│ ▶ GetAvailableRunspaces'
-            '│ ◀ RunspaceAvailability'
-            '│ ◀ UserEvent'
-            '├─ Pipeline ec459654-0832-4d7f-9760-b2b384519afb (continued)'
-            '├─ Pipeline 203d3125-97cc-491d-aaf8-79efbe5a86bd (continued)'
-            '├─ Pipeline ec459654-0832-4d7f-9760-b2b384519afb (continued)'
-            '│ ▶ Close (close runspace pool)'
-            '│ ◀ RunspacePoolState'
-            '│ ◀ RunspacePoolState'
+            "${Bar} ${ToServer} SessionCapability"
+            "${Bar} ${ToServer} InitRunspacePool"
+            "${Bar} ${ToClient} SessionCapability"
+            "${Bar} ${ToClient} PipelineState"
+            "${Bar} ${ToClient} ApplicationPrivateData"
+            "${Bar} ${ToClient} RunspacePoolState"
+            "${Tee}${Line} Pipeline 6a8eb54b-1d71-434e-a4c6-a862e94df370"
+            "${Tee}${Line} Pipeline ec459654-0832-4d7f-9760-b2b384519afb"
+            "${Tee}${Line} Pipeline 203d3125-97cc-491d-aaf8-79efbe5a86bd"
+            "${Tee}${Line} Pipeline ec459654-0832-4d7f-9760-b2b384519afb (continued)"
+            "${Bar} ${ToServer} GetAvailableRunspaces"
+            "${Bar} ${ToClient} RunspaceAvailability"
+            "${Bar} ${ToClient} UserEvent"
+            "${Tee}${Line} Pipeline ec459654-0832-4d7f-9760-b2b384519afb (continued)"
+            "${Tee}${Line} Pipeline 203d3125-97cc-491d-aaf8-79efbe5a86bd (continued)"
+            "${Tee}${Line} Pipeline ec459654-0832-4d7f-9760-b2b384519afb (continued)"
+            "${Bar} ${ToServer} Close (close runspace pool)"
+            "${Bar} ${ToClient} RunspacePoolState"
+            "${Bar} ${ToClient} RunspacePoolState"
         )
     }
 
@@ -279,12 +282,12 @@ Describe "Format-PSRPPacket -View Grouped" {
         $actual = Get-TestData psrp-session.txt | ConvertTo-PSRPPacket |
             Format-PSRPPacket -View Grouped -NoColor -Width 120
 
-        $start = [Array]::IndexOf([string[]]$actual, '├─ Pipeline 203d3125-97cc-491d-aaf8-79efbe5a86bd')
+        $start = [Array]::IndexOf([string[]]$actual, "${Tee}${Line} Pipeline 203d3125-97cc-491d-aaf8-79efbe5a86bd")
         $actual[($start + 1)..($start + 4)] | Should-BeCollection @(
-            '│  │ ▶ CreatePipeline           Start-Sleep 30'
-            '│  │ ▶ Signal (stop pipeline)'
-            '│  │ ◀ PipelineState            Stopped: The pipeline has been stopped.'
-            '│  │ ▶ Close (close pipeline)'
+            "${Bar}  ${Bar} ${ToServer} CreatePipeline           Start-Sleep 30"
+            "${Bar}  ${Bar} ${ToServer} Signal (stop pipeline)"
+            "${Bar}  ${Bar} ${ToClient} PipelineState            Stopped: The pipeline has been stopped."
+            "${Bar}  ${Bar} ${ToServer} Close (close pipeline)"
         )
     }
 
@@ -294,7 +297,7 @@ Describe "Format-PSRPPacket -View Grouped" {
             Format-PSRPPacket -View Grouped -NoColor -Width 120
 
         $actual | Where-Object { $_ -like 'RunspacePool 00000000*' } | Should-BeNull
-        $actual[3] | Should-BeLikeString '│ ◀ SessionCapability*'
+        $actual[3] | Should-BeLikeString "${Bar} ${ToClient} SessionCapability*"
     }
 
 }
@@ -305,10 +308,10 @@ Describe "Format-PSRPPacket -View GroupedDetail" {
 
         $actual | Should-BeCollection @(
             'RunspacePool 11111111-1111-1111-1111-111111111111'
-            '├─ Pipeline 22222222-2222-2222-2222-222222222222'
-            '│  │ ◀ PipelineOutput           "value"'
-            '│  │     #2 · Data · Obj 5:0 SE · 52B'
-            '│  │     value'
+            "${Tee}${Line} Pipeline 22222222-2222-2222-2222-222222222222"
+            "${Bar}  ${Bar} ${ToClient} PipelineOutput           `"value`""
+            "${Bar}  ${Bar}     #2 ${Dot} Data ${Dot} Obj 5:0 SE ${Dot} 52B"
+            "${Bar}  ${Bar}     value"
         )
     }
 
@@ -317,9 +320,9 @@ Describe "Format-PSRPPacket -View GroupedDetail" {
             Format-PSRPPacket -View GroupedDetail -NoColor -Width 120
 
         $actual[3..5] | Should-BeCollection @(
-            '│  │     #1 · Data · Obj 327:0 S · 32KB'
-            '│  │     #2 · Data · Obj 327:1 · 32KB'
-            '│  │     #3 · Data · Obj 327:2  E · 1.1KB · 65KB total'
+            "${Bar}  ${Bar}     #1 ${Dot} Data ${Dot} Obj 327:0 S ${Dot} 32KB"
+            "${Bar}  ${Bar}     #2 ${Dot} Data ${Dot} Obj 327:1 ${Dot} 32KB"
+            "${Bar}  ${Bar}     #3 ${Dot} Data ${Dot} Obj 327:2  E ${Dot} 1.1KB ${Dot} 65KB total"
         )
     }
 
@@ -331,15 +334,15 @@ Describe "Format-PSRPPacket -View GroupedDetail" {
         $start = [Array]::FindIndex([string[]]$actual, [Predicate[string]] { param($l) $l -like '*PipelineOutput*"xxx*' })
 
         $actual[($start + 1)..($start + 9)] | Should-BeCollection @(
-            '│  │     #20 · Data · Obj 1:0 S · 1.4KB'
-            '│  │     #20 · Data · Obj 1:1 · 1.4KB'
-            '│  │     #22 · Data · Obj 1:2 · 1.4KB'
-            '│  │     #22 · Data · Obj 1:3 · 1.4KB'
-            '│  │     #24 · Data · Obj 1:4 · 1.4KB'
-            '│  │     #24 · Data · Obj 1:5 · 1.4KB'
-            '│  │     #26 · Data · Obj 1:6 · 1.4KB'
-            '│  │     #26 · Data · Obj 1:7 · 1.4KB'
-            '│  │     #28 · Data · Obj 1:8  E · 1.1KB · 12KB total'
+            "${Bar}  ${Bar}     #20 ${Dot} Data ${Dot} Obj 1:0 S ${Dot} 1.4KB"
+            "${Bar}  ${Bar}     #20 ${Dot} Data ${Dot} Obj 1:1 ${Dot} 1.4KB"
+            "${Bar}  ${Bar}     #22 ${Dot} Data ${Dot} Obj 1:2 ${Dot} 1.4KB"
+            "${Bar}  ${Bar}     #22 ${Dot} Data ${Dot} Obj 1:3 ${Dot} 1.4KB"
+            "${Bar}  ${Bar}     #24 ${Dot} Data ${Dot} Obj 1:4 ${Dot} 1.4KB"
+            "${Bar}  ${Bar}     #24 ${Dot} Data ${Dot} Obj 1:5 ${Dot} 1.4KB"
+            "${Bar}  ${Bar}     #26 ${Dot} Data ${Dot} Obj 1:6 ${Dot} 1.4KB"
+            "${Bar}  ${Bar}     #26 ${Dot} Data ${Dot} Obj 1:7 ${Dot} 1.4KB"
+            "${Bar}  ${Bar}     #28 ${Dot} Data ${Dot} Obj 1:8  E ${Dot} 1.1KB ${Dot} 12KB total"
         )
     }
 
@@ -349,9 +352,9 @@ Describe "Format-PSRPPacket -View GroupedDetail" {
         $start = [Array]::FindIndex([string[]]$actual, [Predicate[string]] { param($l) $l -like '*PipelineOutput*"yyy*' })
 
         $actual[($start + 1)..($start + 3)] | Should-BeCollection @(
-            '│  │     #30 · Data · Obj 10:0 S · 1.4KB'
-            '│  │     #30 · Data · Obj 10:1 · 1.4KB'
-            '│  │     #31 · Data · Obj 10:2  E · 322B · 3KB total'
+            "${Bar}  ${Bar}     #30 ${Dot} Data ${Dot} Obj 10:0 S ${Dot} 1.4KB"
+            "${Bar}  ${Bar}     #30 ${Dot} Data ${Dot} Obj 10:1 ${Dot} 1.4KB"
+            "${Bar}  ${Bar}     #31 ${Dot} Data ${Dot} Obj 10:2  E ${Dot} 322B ${Dot} 3KB total"
         )
     }
 
@@ -360,11 +363,11 @@ Describe "Format-PSRPPacket -View GroupedDetail" {
             Format-PSRPPacket -View GroupedDetail -NoColor -Width 120
 
         $actual[4..8] | Should-BeCollection @(
-            '│  │     Command        $a = 1'
-            '│  │                    $b = 2'
-            '│  │                    if ($a) {'
-            '│  │                        $a + $b'
-            '│  │                    }'
+            "${Bar}  ${Bar}     Command        `$a = 1"
+            "${Bar}  ${Bar}                    `$b = 2"
+            "${Bar}  ${Bar}                    if (`$a) {"
+            "${Bar}  ${Bar}                        `$a + `$b"
+            "${Bar}  ${Bar}                    }"
         )
     }
 
@@ -374,8 +377,8 @@ Describe "Format-PSRPPacket -View GroupedDetail" {
 
         # The summary line uses the full width, the fields wrap at 120.
         $actual | Select-Object -Skip 2 | Where-Object { $_.Length -gt 120 } | Should-BeNull
-        $actual | Where-Object { $_ -like '│     Message*' } | Should-BeCollection -Count 1
-        @($actual | Where-Object { $_ -like '│              word*' }).Count | Should-BeGreaterThan 0
+        $actual | Where-Object { $_ -like "${Bar}     Message*" } | Should-BeCollection -Count 1
+        @($actual | Where-Object { $_ -like "${Bar}              word*" }).Count | Should-BeGreaterThan 0
     }
 
     It "Wraps a value without spaces at the width" {
@@ -383,9 +386,9 @@ Describe "Format-PSRPPacket -View GroupedDetail" {
         $actual = $packet | ConvertTo-PSRPPacket | Format-PSRPPacket -View GroupedDetail -NoColor -Width 80
 
         $actual[3..5] | Should-BeCollection @(
-            "│     Message  $('a' * 65)"
-            "│              $('a' * 65)"
-            "│              $('a' * 20)"
+            "${Bar}     Message  $('a' * 65)"
+            "${Bar}              $('a' * 65)"
+            "${Bar}              $('a' * 20)"
         )
     }
 }
@@ -409,7 +412,7 @@ Describe "Format-PSRPPacket message decoding" {
             @{ Index = 9; Name = 'every stream redirected to output'; Expected = '. { Write-Warning w; "out" } *>&1' }
             # The hashtable entries are in hash order.
             @{ Index = 10; Name = 'a hashtable argument'; Expected = '^Write-Output -InputObject @\{(Key = ''value''; Num = 2|Num = 2; Key = ''value'')\} -NoEnumerate$' }
-            @{ Index = 11; Name = 'a multi-line script'; Expected = '$a = 1↵$b = 2↵if ($a) {↵$a + $b↵}' }
+            @{ Index = 11; Name = 'a multi-line script'; Expected = "`$a = 1${Return}`$b = 2${Return}if (`$a) {${Return}`$a + `$b${Return}}" }
         ) {
             $summaries[$Index].MessageType | Should-Be CreatePipeline
             if ($Expected.StartsWith('^')) {
@@ -438,7 +441,7 @@ Describe "Format-PSRPPacket message decoding" {
             @{
                 Name = 'a multi-line script with its own scope'
                 Command = '<S N="Cmd">$a = 1_x000A_$b</S><B N="IsScript">true</B><B N="UseLocalScope">true</B>'
-                Expected = '& {↵$a = 1↵$b↵}'
+                Expected = "& {${Return}`$a = 1${Return}`$b${Return}}"
             }
             @{
                 Name = 'an older client merging the error stream'
@@ -489,15 +492,15 @@ Describe "Format-PSRPPacket message decoding" {
                 # The parser decides if a string needs quotes, a dash would
                 # make it a parameter and a number would not be a string.
                 Name = 'string arguments that need quotes to be read back as the same string'
-                Command = '<S N="Cmd">Write-Output</S><B N="IsScript">false</B><Obj N="Args"><LST><Obj><MS><Nil N="N" /><S N="V">-x</S></MS></Obj><Obj><MS><Nil N="N" /><S N="V">–x</S></MS></Obj><Obj><MS><Nil N="N" /><S N="V">1</S></MS></Obj><Obj><MS><Nil N="N" /><S N="V">10kb</S></MS></Obj><Obj><MS><Nil N="N" /><S N="V">a=b</S></MS></Obj></LST></Obj>'
-                Expected = "Write-Output '-x' '–x' '1' '10kb' a=b"
+                Command = "<S N=`"Cmd`">Write-Output</S><B N=`"IsScript`">false</B><Obj N=`"Args`"><LST><Obj><MS><Nil N=`"N`" /><S N=`"V`">-x</S></MS></Obj><Obj><MS><Nil N=`"N`" /><S N=`"V`">${EnDash}x</S></MS></Obj><Obj><MS><Nil N=`"N`" /><S N=`"V`">1</S></MS></Obj><Obj><MS><Nil N=`"N`" /><S N=`"V`">10kb</S></MS></Obj><Obj><MS><Nil N=`"N`" /><S N=`"V`">a=b</S></MS></Obj></LST></Obj>"
+                Expected = "Write-Output '-x' '${EnDash}x' '1' '10kb' a=b"
             }
             @{
                 # PowerShell also treats typographic quotes as single quotes,
-                # the one in the XML is doubled to escape it in this string.
+                # the formatted argument doubles it to escape it.
                 Name = 'a string argument with a typographic quote'
-                Command = '<S N="Cmd">Write-Output</S><B N="IsScript">false</B><Obj N="Args"><LST><Obj><MS><Nil N="N" /><S N="V">it’’s</S></MS></Obj></LST></Obj>'
-                Expected = "Write-Output 'it’’s'"
+                Command = "<S N=`"Cmd`">Write-Output</S><B N=`"IsScript`">false</B><Obj N=`"Args`"><LST><Obj><MS><Nil N=`"N`" /><S N=`"V`">it${RQuote}s</S></MS></Obj></LST></Obj>"
+                Expected = "Write-Output 'it${RQuote}${RQuote}s'"
             }
         ) {
             $packet = Get-PSRPPacket -Destination Server -MessageType CreatePipeline -Data (New-CreatePipelineData $Command)
@@ -530,30 +533,30 @@ Describe "Format-PSRPPacket message decoding" {
         }
 
         It "Formats <MessageType>" -ForEach @(
-            @{ MessageType = 'SessionCapability'; Arrow = '▶'; Expected = 'protocol 2.4, PS 2.0, serialization 1.1.0.1' }
-            @{ MessageType = 'InitRunspacePool'; Arrow = '▶'; Expected = 'min 1, max 1, client PS 7.6.6' }
-            @{ MessageType = 'RunspacePoolState'; Arrow = '◀'; Expected = 'Opened' }
-            @{ MessageType = 'PipelineState'; Arrow = '◀'; Expected = 'Completed' }
-            @{ MessageType = 'ResetRunspaceState'; Arrow = '▶'; Expected = '(ci 1)' }
-            @{ MessageType = 'RunspaceAvailability'; Arrow = '◀'; Expected = 'succeeded (ci 1)' }
-            @{ MessageType = 'SetMaxRunspaces'; Arrow = '▶'; Expected = 'max 3 (ci 2)' }
-            @{ MessageType = 'SetMinRunspaces'; Arrow = '▶'; Expected = 'min 2 (ci 3)' }
-            @{ MessageType = 'GetAvailableRunspaces'; Arrow = '▶'; Expected = '(ci 4)' }
-            @{ MessageType = 'GetCommandMetadata'; Arrow = '▶'; Expected = 'Get-Command -Name Get-Date, Get-Item -CommandType Cmdlet' }
-            @{ MessageType = 'UserEvent'; Arrow = '◀'; Expected = 'RWForward: "event data"' }
-            @{ MessageType = 'PipelineHostCall'; Arrow = '◀'; Expected = 'WriteLine2("from event action")' }
-            @{ MessageType = 'ConnectRunspacePool'; Arrow = '▶'; Expected = 'connect' }
-            @{ MessageType = 'RunspacePoolInitData'; Arrow = '◀'; Expected = 'min 1, max 5' }
-            @{ MessageType = 'RunspacePoolHostCall'; Arrow = '◀'; Expected = 'WriteWarningLine("a warning")' }
-            @{ MessageType = 'RunspacePoolHostResponse'; Arrow = '▶'; Expected = 'PromptForCredential2 → [PSCredential] @{UserName=foo; Password=[SecureString]}' }
-            @{ MessageType = 'PipelineInput'; Arrow = '▶'; Expected = '"piped"' }
-            @{ MessageType = 'EndOfPipelineInput'; Arrow = '▶'; Expected = 'end of input' }
-            @{ MessageType = 'ErrorRecord'; Arrow = '◀'; Expected = 'an error' }
-            @{ MessageType = 'WarningRecord'; Arrow = '◀'; Expected = 'a warning' }
-            @{ MessageType = 'VerboseRecord'; Arrow = '◀'; Expected = 'verbose msg' }
-            @{ MessageType = 'DebugRecord'; Arrow = '◀'; Expected = 'debug msg' }
-            @{ MessageType = 'InformationRecord'; Arrow = '◀'; Expected = 'info msg [tag1]' }
-            @{ MessageType = 'ProgressRecord'; Arrow = '◀'; Expected = 'Act: Working (50%)' }
+            @{ MessageType = 'SessionCapability'; Arrow = $ToServer; Expected = 'protocol 2.4, PS 2.0, serialization 1.1.0.1' }
+            @{ MessageType = 'InitRunspacePool'; Arrow = $ToServer; Expected = 'min 1, max 1, client PS 7.6.6' }
+            @{ MessageType = 'RunspacePoolState'; Arrow = $ToClient; Expected = 'Opened' }
+            @{ MessageType = 'PipelineState'; Arrow = $ToClient; Expected = 'Completed' }
+            @{ MessageType = 'ResetRunspaceState'; Arrow = $ToServer; Expected = '(ci 1)' }
+            @{ MessageType = 'RunspaceAvailability'; Arrow = $ToClient; Expected = 'succeeded (ci 1)' }
+            @{ MessageType = 'SetMaxRunspaces'; Arrow = $ToServer; Expected = 'max 3 (ci 2)' }
+            @{ MessageType = 'SetMinRunspaces'; Arrow = $ToServer; Expected = 'min 2 (ci 3)' }
+            @{ MessageType = 'GetAvailableRunspaces'; Arrow = $ToServer; Expected = '(ci 4)' }
+            @{ MessageType = 'GetCommandMetadata'; Arrow = $ToServer; Expected = 'Get-Command -Name Get-Date, Get-Item -CommandType Cmdlet' }
+            @{ MessageType = 'UserEvent'; Arrow = $ToClient; Expected = 'RWForward: "event data"' }
+            @{ MessageType = 'PipelineHostCall'; Arrow = $ToClient; Expected = 'WriteLine2("from event action")' }
+            @{ MessageType = 'ConnectRunspacePool'; Arrow = $ToServer; Expected = 'connect' }
+            @{ MessageType = 'RunspacePoolInitData'; Arrow = $ToClient; Expected = 'min 1, max 5' }
+            @{ MessageType = 'RunspacePoolHostCall'; Arrow = $ToClient; Expected = 'WriteWarningLine("a warning")' }
+            @{ MessageType = 'RunspacePoolHostResponse'; Arrow = $ToServer; Expected = "PromptForCredential2 ${RightArrow} [PSCredential] @{UserName=foo; Password=[SecureString]}" }
+            @{ MessageType = 'PipelineInput'; Arrow = $ToServer; Expected = '"piped"' }
+            @{ MessageType = 'EndOfPipelineInput'; Arrow = $ToServer; Expected = 'end of input' }
+            @{ MessageType = 'ErrorRecord'; Arrow = $ToClient; Expected = 'an error' }
+            @{ MessageType = 'WarningRecord'; Arrow = $ToClient; Expected = 'a warning' }
+            @{ MessageType = 'VerboseRecord'; Arrow = $ToClient; Expected = 'verbose msg' }
+            @{ MessageType = 'DebugRecord'; Arrow = $ToClient; Expected = 'debug msg' }
+            @{ MessageType = 'InformationRecord'; Arrow = $ToClient; Expected = 'info msg [tag1]' }
+            @{ MessageType = 'ProgressRecord'; Arrow = $ToClient; Expected = 'Act: Working (50%)' }
         ) {
             $actual = $summaries | Where-Object MessageType -EQ $MessageType | Select-Object -First 1
             $actual.Arrow | Should-Be $Arrow
@@ -644,7 +647,7 @@ Describe "Format-PSRPPacket message decoding" {
                 Name = 'a string with control characters'
                 MessageType = 'PipelineOutput'
                 Data = '<S>a_x000D__x000A_b_x000D_c_x0009_d_x0001_</S>'
-                Expected = '"a↵b↵c d·"'
+                Expected = "`"a${Return}b${Return}c d${Dot}`""
             }
             @{
                 Name = 'a data shape that does not match the message type'
@@ -698,7 +701,7 @@ Describe "Format-PSRPPacket message decoding" {
                 Name = 'a string ending with a carriage return'
                 MessageType = 'PipelineOutput'
                 Data = '<S>a_x000D_</S>'
-                Expected = '"a↵"'
+                Expected = "`"a${Return}`""
             }
             @{
                 Name = 'output of a byte array'
@@ -739,7 +742,7 @@ Describe "Format-PSRPPacket message decoding" {
             $packet = Get-PSRPPacket -Destination Client -MessageType $MessageType -Data $Data
             $actual = $packet | ConvertTo-PSRPPacket | Format-PSRPPacket -View Timeline -Width 120 | Select-Object -Last 1
 
-            $actual.Contains("`e[31m") | Should-BeTrue
+            $actual.Contains("${Esc}[31m") | Should-BeTrue
         }
 
         It "Formats invalid CLIXML" {
@@ -762,7 +765,7 @@ Describe "Format-PSRPPacket message decoding" {
             $packet = Get-PSRPPacket -Destination Client -MessageType UserEvent -Data $data
             $actual = $packet | ConvertTo-PSRPPacket | Format-PSRPPacket -View GroupedDetail -NoColor -Width 120
 
-            $actual | Should-ContainCollection '│     SourceArgs        "a", 1'
+            $actual | Should-ContainCollection "${Bar}     SourceArgs        `"a`", 1"
         }
 
         It "Limits the children of the data tree" {
@@ -770,8 +773,8 @@ Describe "Format-PSRPPacket message decoding" {
             $packet = Get-PSRPPacket -Destination Client -MessageType PipelineOutput -Data "<Obj RefId=`"0`"><TN RefId=`"0`"><T>System.Object[]</T><T>System.Object</T></TN><LST>$items</LST></Obj>"
             $actual = $packet | ConvertTo-PSRPPacket | Format-PSRPPacket -View GroupedDetail -NoColor -Width 120
 
-            $actual | Should-ContainCollection '│     ├─ [49]: 50'
-            $actual | Should-ContainCollection '│     └─ … 10 more'
+            $actual | Should-ContainCollection "${Bar}     ${Tee}${Line} [49]: 50"
+            $actual | Should-ContainCollection "${Bar}     ${Elbow}${Line} ${Ellipsis} 10 more"
         }
 
         It "Formats the size of a message over 1MB" {
@@ -801,7 +804,7 @@ Describe "Format-PSRPPacket message decoding" {
             $packet = Get-PSRPPacket -Destination $destination -MessageType PipelineOutput -Data '<S>x</S>'
             $actual = $packet | Get-MessageSummary
 
-            $actual.Arrow | Should-Be '•'
+            $actual.Arrow | Should-Be $Bullet
             $actual.Summary | Should-Be '"x"'
 
             $timeline = $packet | ConvertTo-PSRPPacket | Format-PSRPPacket -NoColor -Width 120 | Select-Object -Last 1
@@ -813,10 +816,10 @@ Describe "Format-PSRPPacket message decoding" {
             $actual = $packet | ConvertTo-PSRPPacket | Format-PSRPPacket -View GroupedDetail -NoColor -Width 120
 
             $actual[3..6] | Should-BeCollection @(
-                '│     [Byte[]]'
-                '│     ├─ [0]: 1'
-                '│     ├─ [1]: 2'
-                '│     └─ [2]: 3'
+                "${Bar}     [Byte[]]"
+                "${Bar}     ${Tee}${Line} [0]: 1"
+                "${Bar}     ${Tee}${Line} [1]: 2"
+                "${Bar}     ${Elbow}${Line} [2]: 3"
             )
         }
 
@@ -826,7 +829,7 @@ Describe "Format-PSRPPacket message decoding" {
             $packet = Get-PSRPPacket -Destination Client -MessageType PipelineOutput -Data '<Obj RefId="0"><MS><S N="Name">a</S><Ref N="Self" RefId="0" /></MS></Obj>'
             $actual = $packet | ConvertTo-PSRPPacket | Format-PSRPPacket -View GroupedDetail -NoColor -Width 120
 
-            $actual[-1] | Should-BeLikeString '*└─ Self: …'
+            $actual[-1] | Should-BeLikeString "*${Elbow}${Line} Self: ${Ellipsis}"
         }
 
         It "Stops the formatting of an argument that contains itself" {
@@ -837,7 +840,7 @@ Describe "Format-PSRPPacket message decoding" {
             $packet = Get-PSRPPacket -Destination Server -MessageType CreatePipeline -Data (New-CreatePipelineData $command)
             $actual = $packet | Get-MessageSummary
 
-            $actual.Summary | Should-BeLikeString 'Write-Output -InputObject @{Self = @{Self = *@{… = …}*'
+            $actual.Summary | Should-BeLikeString "Write-Output -InputObject @{Self = @{Self = *@{${Ellipsis} = ${Ellipsis}}*"
         }
 
         Context "Objects with type extensions that throw" {
@@ -850,7 +853,7 @@ Describe "Format-PSRPPacket message decoding" {
                 Function New-ObjectData {
                     param ([string]$TypeName, [switch]$WithToString)
 
-                    $toString = $WithToString ? '<ToString>oops</ToString>' : ''
+                    $toString = if ($WithToString) { '<ToString>oops</ToString>' } else { '' }
                     "<Obj RefId=`"0`"><TN RefId=`"0`"><T>$TypeName</T><T>System.Object</T></TN>$toString<MS><S N=`"A`">1</S></MS></Obj>"
                 }
             }
@@ -865,10 +868,10 @@ Describe "Format-PSRPPacket message decoding" {
                 $packet = Get-PSRPPacket -Destination Client -MessageType PipelineOutput -Data $data
                 $actual = $packet | ConvertTo-PSRPPacket | Format-PSRPPacket -View GroupedDetail -NoColor -Width 1000
 
-                $actual[1] | Should-BeLikeString '│ ◀ PipelineOutput*unexpected data: *bad ToString*'
+                $actual[1] | Should-BeLikeString "${Bar} ${ToClient} PipelineOutput*unexpected data: *bad ToString*"
                 # The raw value is wrapped like any other field.
-                $actual[3] | Should-BeLikeString '│     Data  <Obj RefId="0"><TN RefId="0"><T>RemoteWrench.Test.BadToString</T>*'
-                ($actual[3..4] -replace '^│ +Data  |^│ +') -join ' ' | Should-Be $data
+                $actual[3] | Should-BeLikeString "${Bar}     Data  <Obj RefId=`"0`"><TN RefId=`"0`"><T>RemoteWrench.Test.BadToString</T>*"
+                ($actual[3..4] -replace "^${Bar} +Data  |^${Bar} +") -join ' ' | Should-Be $data
             }
 
             It "Skips a field with a property that throws" {
@@ -876,9 +879,9 @@ Describe "Format-PSRPPacket message decoding" {
                 $actual = $packet | ConvertTo-PSRPPacket | Format-PSRPPacket -View GroupedDetail -NoColor -Width 120
 
                 $actual[1..3] | Should-BeCollection @(
-                    '│ ◀ ErrorRecord                 oops'
-                    '│     #1 · Data · Obj 1:0 SE · 184B'
-                    '│     Message  oops'
+                    "${Bar} ${ToClient} ErrorRecord                 oops"
+                    "${Bar}     #1 ${Dot} Data ${Dot} Obj 1:0 SE ${Dot} 184B"
+                    "${Bar}     Message  oops"
                 )
             }
 
@@ -887,8 +890,8 @@ Describe "Format-PSRPPacket message decoding" {
                 $actual = $packet | ConvertTo-PSRPPacket | Format-PSRPPacket -View GroupedDetail -NoColor -Width 120
 
                 $actual[3..4] | Should-BeCollection @(
-                    '│     [BadProperty] oops'
-                    '│     └─ A: 1'
+                    "${Bar}     [BadProperty] oops"
+                    "${Bar}     ${Elbow}${Line} A: 1"
                 )
             }
         }
@@ -899,9 +902,9 @@ Describe "Format-PSRPPacket message decoding" {
             $start = [Array]::FindIndex([string[]]$actual, [Predicate[string]] { param($l) $l -like '*PipelineHostCall*WriteWarningLine*' })
 
             $actual[($start + 2)..($start + 4)] | Should-BeCollection @(
-                '│  │     Method  WriteWarningLine'
-                '│  │     CallId  -100 (no response)'
-                '│  │     Arg[0]  "a warning"'
+                "${Bar}  ${Bar}     Method  WriteWarningLine"
+                "${Bar}  ${Bar}     CallId  -100 (no response)"
+                "${Bar}  ${Bar}     Arg[0]  `"a warning`""
             )
         }
     }
