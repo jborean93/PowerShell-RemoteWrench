@@ -1,6 +1,6 @@
 # Changelog for RemoteWrench
 
-## v0.1.0 - TBD
+## v0.1.0 - 2026-10-15
 
 + Initial version
 + Added `ConvertTo-PSRPPacket` and `Format-PSRPPacket` to parse and display PSRP Out of Process packets

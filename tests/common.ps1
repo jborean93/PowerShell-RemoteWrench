@@ -262,9 +262,8 @@ Function Invoke-FormatInTestHost {
         $NoRawUI
     )
 
-    if (-not ('RemoteWrenchTests.WidthHost2' -as [type])) {
+    if (-not ('RemoteWrenchTests.WidthHost' -as [type])) {
         Add-Type -TypeDefinition @'
-#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -273,13 +272,15 @@ using System.Management.Automation;
 using System.Management.Automation.Host;
 using System.Security;
 
+// Windows PowerShell compiles this with C# 5, avoid newer syntax.
 namespace RemoteWrenchTests
 {
-    public class WidthHost2 : PSHost
+    public class WidthHost : PSHost
     {
-        private readonly WidthHostUI? _ui;
+        private readonly WidthHostUI _ui;
+        private readonly Guid _instanceId = Guid.NewGuid();
 
-        public WidthHost2(int width, bool throwOnBufferSize, bool noUI, bool noRawUI)
+        public WidthHost(int width, bool throwOnBufferSize, bool noUI, bool noRawUI)
         {
             if (!noUI)
             {
@@ -287,32 +288,35 @@ namespace RemoteWrenchTests
             }
         }
 
-        public override string Name => "RemoteWrenchTestHost";
-        public override Version Version => new Version(1, 0);
-        public override Guid InstanceId { get; } = Guid.NewGuid();
-        public override PSHostUserInterface? UI => _ui;
-        public override CultureInfo CurrentCulture => CultureInfo.CurrentCulture;
-        public override CultureInfo CurrentUICulture => CultureInfo.CurrentUICulture;
+        public override string Name { get { return "RemoteWrenchTestHost"; } }
+        public override Version Version { get { return new Version(1, 0); } }
+        public override Guid InstanceId { get { return _instanceId; } }
+        public override PSHostUserInterface UI { get { return _ui; } }
+        public override CultureInfo CurrentCulture { get { return CultureInfo.CurrentCulture; } }
+        public override CultureInfo CurrentUICulture { get { return CultureInfo.CurrentUICulture; } }
         public override void SetShouldExit(int exitCode) { }
-        public override void EnterNestedPrompt() => throw new NotImplementedException();
-        public override void ExitNestedPrompt() => throw new NotImplementedException();
+        public override void EnterNestedPrompt() { throw new NotImplementedException(); }
+        public override void ExitNestedPrompt() { throw new NotImplementedException(); }
         public override void NotifyBeginApplication() { }
         public override void NotifyEndApplication() { }
     }
 
     public class WidthHostUI : PSHostUserInterface
     {
-        private readonly PSHostRawUserInterface? _rawUI;
+        private readonly PSHostRawUserInterface _rawUI;
 
-        public WidthHostUI(PSHostRawUserInterface? rawUI) => _rawUI = rawUI;
+        public WidthHostUI(PSHostRawUserInterface rawUI)
+        {
+            _rawUI = rawUI;
+        }
 
-        public override PSHostRawUserInterface? RawUI => _rawUI;
-        public override Dictionary<string, PSObject> Prompt(string caption, string message, Collection<FieldDescription> descriptions) => throw new NotImplementedException();
-        public override int PromptForChoice(string caption, string message, Collection<ChoiceDescription> choices, int defaultChoice) => throw new NotImplementedException();
-        public override PSCredential PromptForCredential(string caption, string message, string userName, string targetName) => throw new NotImplementedException();
-        public override PSCredential PromptForCredential(string caption, string message, string userName, string targetName, PSCredentialTypes allowedCredentialTypes, PSCredentialUIOptions options) => throw new NotImplementedException();
-        public override string ReadLine() => throw new NotImplementedException();
-        public override SecureString ReadLineAsSecureString() => throw new NotImplementedException();
+        public override PSHostRawUserInterface RawUI { get { return _rawUI; } }
+        public override Dictionary<string, PSObject> Prompt(string caption, string message, Collection<FieldDescription> descriptions) { throw new NotImplementedException(); }
+        public override int PromptForChoice(string caption, string message, Collection<ChoiceDescription> choices, int defaultChoice) { throw new NotImplementedException(); }
+        public override PSCredential PromptForCredential(string caption, string message, string userName, string targetName) { throw new NotImplementedException(); }
+        public override PSCredential PromptForCredential(string caption, string message, string userName, string targetName, PSCredentialTypes allowedCredentialTypes, PSCredentialUIOptions options) { throw new NotImplementedException(); }
+        public override string ReadLine() { throw new NotImplementedException(); }
+        public override SecureString ReadLineAsSecureString() { throw new NotImplementedException(); }
         public override void Write(string value) { }
         public override void Write(ConsoleColor foregroundColor, ConsoleColor backgroundColor, string value) { }
         public override void WriteDebugLine(string message) { }
@@ -327,6 +331,7 @@ namespace RemoteWrenchTests
     {
         private readonly int _width;
         private readonly bool _throwOnBufferSize;
+        private string _windowTitle = "";
 
         public WidthRawUI(int width, bool throwOnBufferSize)
         {
@@ -336,32 +341,39 @@ namespace RemoteWrenchTests
 
         public override Size BufferSize
         {
-            get => _throwOnBufferSize ? throw new InvalidOperationException("No console") : new Size(_width, 50);
-            set => throw new NotImplementedException();
+            get
+            {
+                if (_throwOnBufferSize)
+                {
+                    throw new InvalidOperationException("No console");
+                }
+                return new Size(_width, 50);
+            }
+            set { throw new NotImplementedException(); }
         }
 
         public override ConsoleColor BackgroundColor { get; set; }
         public override ConsoleColor ForegroundColor { get; set; }
         public override Coordinates CursorPosition { get; set; }
         public override int CursorSize { get; set; }
-        public override bool KeyAvailable => false;
-        public override Size MaxPhysicalWindowSize => new Size(_width, 50);
-        public override Size MaxWindowSize => new Size(_width, 50);
+        public override bool KeyAvailable { get { return false; } }
+        public override Size MaxPhysicalWindowSize { get { return new Size(_width, 50); } }
+        public override Size MaxWindowSize { get { return new Size(_width, 50); } }
         public override Coordinates WindowPosition { get; set; }
         public override Size WindowSize { get; set; }
-        public override string WindowTitle { get; set; } = "";
+        public override string WindowTitle { get { return _windowTitle; } set { _windowTitle = value; } }
         public override void FlushInputBuffer() { }
-        public override BufferCell[,] GetBufferContents(Rectangle rectangle) => throw new NotImplementedException();
-        public override KeyInfo ReadKey(ReadKeyOptions options) => throw new NotImplementedException();
-        public override void ScrollBufferContents(Rectangle source, Coordinates destination, Rectangle clip, BufferCell fill) => throw new NotImplementedException();
-        public override void SetBufferContents(Coordinates origin, BufferCell[,] contents) => throw new NotImplementedException();
-        public override void SetBufferContents(Rectangle rectangle, BufferCell fill) => throw new NotImplementedException();
+        public override BufferCell[,] GetBufferContents(Rectangle rectangle) { throw new NotImplementedException(); }
+        public override KeyInfo ReadKey(ReadKeyOptions options) { throw new NotImplementedException(); }
+        public override void ScrollBufferContents(Rectangle source, Coordinates destination, Rectangle clip, BufferCell fill) { throw new NotImplementedException(); }
+        public override void SetBufferContents(Coordinates origin, BufferCell[,] contents) { throw new NotImplementedException(); }
+        public override void SetBufferContents(Rectangle rectangle, BufferCell fill) { throw new NotImplementedException(); }
     }
 }
 '@
     }
 
-    $testHost = [RemoteWrenchTests.WidthHost2]::new($Width, $ThrowOnBufferSize, $NoUI, $NoRawUI)
+    $testHost = [RemoteWrenchTests.WidthHost]::new($Width, $ThrowOnBufferSize, $NoUI, $NoRawUI)
     $runspace = [runspacefactory]::CreateRunspace($testHost)
     $runspace.Open()
     $ps = [powershell]::Create()
