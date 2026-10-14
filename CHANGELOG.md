@@ -1,5 +1,7 @@
 # Changelog for RemoteWrench
 
+## v0.2.0 - TBD
+
 ## v0.1.0 - 2026-10-15
 
 + Initial version
