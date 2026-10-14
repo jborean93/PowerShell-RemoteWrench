@@ -262,8 +262,13 @@ task PesterTests {
     # path as a missed coverage branch. The S.M.A of the pwsh under test is
     # copied there for the run. The module still uses the pwsh copy as the
     # loader only resolves the assemblies in RemoteWrench.deps.json, see
-    # tests/Alc.Tests.ps1.
+    # tests/Alc.Tests.ps1. The location is queried from the process as
+    # Windows PowerShell loads S.M.A from the GAC rather than its home dir.
     $smaPath = [Path]::Combine($watchFolder, 'System.Management.Automation.dll')
+    $pwshSma = & $pwsh -NoProfile -NonInteractive -Command '[PSObject].Assembly.Location'
+    if ($LASTEXITCODE -or -not $pwshSma) {
+        throw "Failed to find System.Management.Automation.dll of '$pwsh'"
+    }
 
     $arguments = @(
         'collect'
@@ -278,9 +283,6 @@ task PesterTests {
 
     $origEnv = $env:PSModulePath
     try {
-        $pwshSma = [Path]::Combine(
-            $pwshHome,
-            'System.Management.Automation.dll')
         Copy-Item -LiteralPath $pwshSma -Destination $smaPath
 
         $env:PSModulePath = @(
