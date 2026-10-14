@@ -4,7 +4,8 @@ using namespace System.Runtime.Loader
 
 BeforeAll { . ([Path]::Combine($PSScriptRoot, 'common.ps1')) }
 
-Describe "Module loading" {
+# Tests for module loading behavior in .NET Core (PowerShell 7+).
+Describe "Module loading" -Skip:(-not $IsCoreCLR) {
     BeforeAll {
         $moduleBase = (Get-Module RemoteWrench).ModuleBase
 
