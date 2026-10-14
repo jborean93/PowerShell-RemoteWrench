@@ -1,0 +1,42 @@
+name: Publish RemoteWrench
+on:
+  release:
+    types:
+    - published
+
+permissions: {}
+
+jobs:
+  publish:
+    name: publish
+    if: startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-latest
+    environment:
+      name: publish
+      url: https://www.powershellgallery.com/packages/RemoteWrench/${{ steps.download.outputs.version }}
+    permissions:
+      contents: read  # Download the release asset
+
+    steps:
+    - name: Download the module from the release
+      id: download
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ github.event.release.tag_name }}
+      run: |
+        gh release download "$TAG" --pattern '*.nupkg' --repo "$GITHUB_REPOSITORY"
+
+        # The version in the gallery URL of the environment, including any
+        # prerelease label, from RemoteWrench.<version>.nupkg.
+        nupkg=(RemoteWrench.*.nupkg)
+        version="${nupkg[0]#RemoteWrench.}"
+        echo "version=${version%.nupkg}" >> "$GITHUB_OUTPUT"
+
+    - name: Publish to the PowerShell Gallery
+      run: >-
+        dotnet nuget push *.nupkg
+        --api-key "${PSGALLERY_TOKEN}"
+        --source "https://www.powershellgallery.com/api/v2/package"
+        --no-symbols
+      env:
+        PSGALLERY_TOKEN: ${{ secrets.PSGALLERY_TOKEN }}
