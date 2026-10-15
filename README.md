@@ -11,6 +11,143 @@ Documentation for this module and details on the cmdlets included can be found [
 
 ## Examples
 
+### Extension Sessions
+
+[`Enter-ExtSession`](docs/en-US/RemoteWrench/Enter-ExtSession.md) enters a remote session like `Enter-PSSession` with extension functions defined in it.
+They can be local functions you want in the remote session without reloading them by hand, or callbacks, functions in the remote session that run code on the client.
+See [about_ExtSession](docs/en-US/RemoteWrench/about_ExtSession.md) for how they work.
+
+#### Enter a session
+
+`Enter-ExtSession` has the same parameters as `New-PSSession` to create the session, the session is closed when it is exited.
+For anything else, like a custom transport, a scriptblock can create the session instead.
+
+```powershell
+Enter-ExtSession server -Function Invoke-Sudo
+Enter-ExtSession -HostName admin@server -Port 2222 -Function Invoke-Sudo
+Enter-ExtSession { New-CustomSession -Endpoint foo } -Function Invoke-Sudo
+```
+
+#### Remote functions
+
+A local function can be given by name, its definition is copied to the remote session.
+[`New-ExtFunction`](docs/en-US/RemoteWrench/New-ExtFunction.md) defines one from a scriptblock, with `$using:` for values from the client.
+
+```powershell
+Function Get-ServiceStatus {
+    param ([string[]]$Name)
+
+    Get-Service -Name $Name | Select-Object Name, Status
+}
+
+$logPath = 'C:\Logs\app.log'
+$tail = New-ExtFunction Get-AppLog {
+    param ([int]$Tail = 20)
+
+    Get-Content -LiteralPath $using:logPath -Tail $Tail
+}
+
+Enter-ExtSession server -Function Get-ServiceStatus, $tail
+```
+
+```powershell
+[server]: PS> Get-ServiceStatus WinRM
+[server]: PS> Get-AppLog -Tail 5
+```
+
+The functions behave like any other, with their parameters, help and pipeline input.
+
+#### Callbacks
+
+[`New-ExtCallback`](docs/en-US/RemoteWrench/New-ExtCallback.md) defines a function in the remote session that runs a script on the client.
+Without a server script the remote function is a proxy for the client script, its arguments and pipeline input go to the client script and the client script's output comes back as it is written.
+
+```powershell
+$callbacks = @(
+    New-ExtCallback Get-ClientName { [Environment]::MachineName }
+
+    New-ExtCallback Out-ClientGridView {
+        param ([string]$Title = 'Remote')
+
+        $input | Out-GridView -Title $Title -PassThru
+    }
+)
+Enter-ExtSession server -Function $callbacks
+```
+
+```powershell
+[server]: PS> Get-ClientName
+[server]: PS> Get-Process | Out-ClientGridView -Title 'Pick a process' | Stop-Process
+```
+
+`Get-Process` runs in the remote session, the grid view opens on the client and the selected processes are stopped in the remote session.
+
+A server script runs in the remote session and calls the client script with `Invoke-ExtCallback`, which has the client script's parameters.
+
+```powershell
+$archive = New-ExtCallback Save-ClientArchive -ServerScript {
+    param ([string[]]$Path, [string]$Destination)
+
+    # Runs in the remote session, the client can't read the remote files.
+    Get-Item -Path $Path | ForEach-Object {
+        [PSCustomObject]@{
+            Name = $_.Name
+            Content = [System.IO.File]::ReadAllBytes($_.FullName)
+        }
+    } | Invoke-ExtCallback -Destination $Destination
+} -ClientScript {
+    param ([string]$Destination)
+
+    # Runs on the client, it gets the objects as pipeline input.
+    begin {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Destination)
+        $zip = [System.IO.Compression.ZipFile]::Open($path, 'Create')
+    }
+    process {
+        $entry = $zip.CreateEntry([System.IO.Path]::GetFileName($_.Name))
+        $stream = $entry.Open()
+        try {
+            $stream.Write($_.Content, 0, $_.Content.Length)
+        }
+        finally {
+            $stream.Dispose()
+        }
+    }
+    end {
+        $zip.Dispose()
+        $path
+    }
+}
+```
+
+```powershell
+[server]: PS> Save-ClientArchive -Path C:\Logs\*.log -Destination logs.zip
+```
+
+> [!IMPORTANT]
+> Anything running in the remote session can call a callback with any input, not only the function defined for it.
+> Treat what a client script receives as untrusted and validate it, see [about_ExtSession](docs/en-US/RemoteWrench/about_ExtSession.md).
+
+#### Copy and edit files
+
+[`New-ExtFileTransferCallback`](docs/en-US/RemoteWrench/New-ExtFileTransferCallback.md) creates `Send-ClientFile` and `Receive-ClientFile` to copy files between the client and the remote session, limited to one client directory.
+[`New-ExtEditCallback`](docs/en-US/RemoteWrench/New-ExtEditCallback.md) creates `PSEdit` to edit a remote file with the client's editor.
+
+```powershell
+$functions = @(
+    New-ExtFileTransferCallback -ClientPath ~/Downloads
+    New-ExtEditCallback -Editor 'code --wait'
+)
+Enter-ExtSession server -Function $functions
+```
+
+```powershell
+[server]: PS> Get-ChildItem C:\Logs\*.log | Send-ClientFile -Destination logs
+[server]: PS> Receive-ClientFile tool.zip C:\Temp
+[server]: PS> PSEdit C:\inetpub\wwwroot\web.config
+```
+
 ### PSRP Packets
 
 [`ConvertTo-PSRPPacket`](docs/en-US/RemoteWrench/ConvertTo-PSRPPacket.md) and [`Format-PSRPPacket`](docs/en-US/RemoteWrench/Format-PSRPPacket.md) parse and display PowerShell Remoting Protocol (PSRP) packets to see what a remote session is doing.

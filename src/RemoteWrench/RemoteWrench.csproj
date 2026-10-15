@@ -9,6 +9,12 @@
   reference assembly is needed to compile and none of the package or its
   dependencies end up in the published module.
   -->
+  <ItemGroup>
+    <!-- Run in the remote session by Enter-ExtSession. -->
+    <EmbeddedResource Include="Ext/ExtServer.ps1" LogicalName="RemoteWrench.Ext.ExtServer.ps1" />
+    <EmbeddedResource Include="Ext/Builtin/*.ps1" LogicalName="RemoteWrench.Ext.%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
     <!-- AssemblyLoadContext only exists on .NET, Windows PowerShell imports the module assembly directly. -->
     <ProjectReference Include="../RemoteWrench.Loader/RemoteWrench.Loader.csproj" />

@@ -100,6 +100,17 @@ Function Get-HelpTypeInfo {
     }
 }
 
+# The default syntax of a cmdlet with dynamic parameters doesn't show them,
+# a note is added below it in the markdown after it is exported. A cmdlet
+# whose dynamic parameters come from another command names it here.
+$dynamicNote = @{}
+$dynamicSource = @{
+    'Enter-ExtSession' = @{
+        Name = 'New-PSSession'
+        Uri = 'https://learn.microsoft.com/powershell/module/microsoft.powershell.core/new-pssession'
+    }
+}
+
 $help = foreach ($cmd in Get-Command -Module $module.Name) {
     $mdPath = [Path]::Combine($moduleDocs, "$($cmd.Name).md")
     if (Test-Path -LiteralPath $mdPath) {
@@ -121,21 +132,54 @@ $help = foreach ($cmd in Get-Command -Module $module.Name) {
         $cmdHelp = New-CommandHelp -CommandInfo $cmd
     }
 
-    # Remove parameters that no longer exist in the cmdlet. This won't work if
-    # the cmdlet has dynamic parameters but I don't use them. Common
-    # parameters like -ProgressAction are covered by the CommonParameters
-    # section so remove them too, WhatIf and Confirm are optional common
-    # parameters and are documented like any other parameter.
+    # Remove parameters that no longer exist in the cmdlet. Common parameters
+    # like -ProgressAction are covered by the CommonParameters section so
+    # remove them too, WhatIf and Confirm are optional common parameters and
+    # are documented like any other parameter. Dynamic parameters, like the
+    # New-PSSession ones of Enter-ExtSession, come from another command and
+    # are described in the cmdlet's description with a link to it rather than
+    # listed.
     $commonParams = [System.Management.Automation.PSCmdlet]::CommonParameters
+    $dynamicParams = @($cmd.Parameters.Values | Where-Object IsDynamic | ForEach-Object Name)
     $null = $cmdHelp.Parameters.RemoveAll({
             $name = $args[0].Name
-            -not $cmd.Parameters.ContainsKey($name) -or $name -in $commonParams
+            -not $cmd.Parameters.ContainsKey($name) -or $name -in $commonParams -or $name -in $dynamicParams
         })
 
     # Update-CommandHelp keeps the syntax of parameter sets that no longer
-    # exist in the cmdlet, the parameter metadata is already updated.
-    $paramSets = $cmd.ParameterSets.Name
-    $null = $cmdHelp.Syntax.RemoveAll({ $args[0].ParameterSetName -notin $paramSets })
+    # exist in the cmdlet and doesn't add new ones, the syntax is generated
+    # from the cmdlet so take it from New-CommandHelp. Without the dynamic
+    # parameters, their parameter sets would all be the same so only the
+    # default one is kept, named so the markdown heading says the parameters
+    # it is used with aren't shown. The MAML has no parameter set names, and
+    # PlatyPS builds its syntax from the parameters rather than this, so
+    # Get-Help only shows the parameters that are left.
+    $cmdHelp.Syntax.Clear()
+    foreach ($syntax in (New-CommandHelp -CommandInfo $cmd).Syntax) {
+        $removed = $syntax.SyntaxParameters.RemoveAll({ $args[0].ParameterName -in $dynamicParams })
+        if (-not $removed) {
+            $cmdHelp.Syntax.Add($syntax)
+        }
+        elseif ($syntax.IsDefaultParameterSet) {
+            $source = $dynamicSource[$cmd.Name]
+            if ($source) {
+                $setName = "$($source.Name) Dynamic Parameters"
+                $note = "The parameters of this parameter set are defined dynamically based on [$($source.Name)]($($source.Uri))."
+            }
+            else {
+                $setName = 'Dynamic Parameters'
+                $note = "The parameters of this parameter set are defined dynamically, see the description."
+            }
+
+            $renamed = [SyntaxItem]::new($syntax.CommandName, $setName, $true)
+            $renamed.SyntaxParameters.AddRange($syntax.SyntaxParameters)
+            $cmdHelp.Syntax.Add($renamed)
+            $dynamicNote[$cmd.Name] = @{
+                SetName = $setName
+                Text = "$note`n``Get-Command $($cmd.Name) -Syntax`` shows them."
+            }
+        }
+    }
 
     # PlatyPS uses the CLR name for the parameter type, e.g.
     # System.Nullable`1[System.Int32], use the same format as the input/output
@@ -185,6 +229,21 @@ $help = foreach ($cmd in Get-Command -Module $module.Name) {
 }
 
 $help | Export-MarkdownCommandHelp -OutputFolder $DocsPath -Force | Out-Null
+
+# PlatyPS has no text for a syntax entry, add the note after the code block
+# of the default syntax. Update-CommandHelp drops it when it reads the page
+# so it is added each time. Import-MarkdownCommandHelp ignores it when the
+# MAML is built.
+foreach ($kvp in $dynamicNote.GetEnumerator()) {
+    $mdPath = [Path]::Combine($moduleDocs, "$($kvp.Key).md")
+    $content = [File]::ReadAllText($mdPath)
+    $pattern = "(?s)(### $([Regex]::Escape($kvp.Value.SetName)) \(Default\)\r?\n\r?\n``````\r?\n.*?\r?\n``````\r?\n)"
+    if ($content -notmatch $pattern) {
+        throw "Failed to find the default syntax of $($kvp.Key) to add the dynamic parameter note"
+    }
+    $content = $content -replace $pattern, "`$1`n$($kvp.Value.Text.Replace('$', '$$'))`n"
+    [File]::WriteAllText($mdPath, $content)
+}
 
 $moduleFile = [Path]::Combine($moduleDocs, "$($module.Name).md")
 $moduleFileParams = @{
