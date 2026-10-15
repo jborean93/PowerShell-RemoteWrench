@@ -464,6 +464,9 @@ Function Initialize-ExtTestSession {
         $AckTimeoutMs = 10000
     )
 
+    # Invoke-ExtTestCommand shows the trace if a command doesn't finish.
+    Set-ExtTrace -Enabled $true
+
     $sessionType = [RemoteWrench.Ext.ExtDefinition].Assembly.GetType('RemoteWrench.Ext.ExtSession')
     $definitions = [System.Collections.Generic.List[RemoteWrench.Ext.ExtDefinition]]::new()
     foreach ($f in $Function) {
@@ -479,6 +482,29 @@ Function Initialize-ExtTestSession {
     }
     catch [System.Reflection.TargetInvocationException] {
         throw $_.Exception.InnerException
+    }
+}
+
+# Turns the client side trace of the sessions on or off, or with -Flush
+# removes and outputs its entries.
+Function Set-ExtTrace {
+    [CmdletBinding()]
+    param (
+        [Parameter(ParameterSetName = 'Enabled')]
+        [bool]
+        $Enabled,
+
+        [Parameter(ParameterSetName = 'Flush')]
+        [switch]
+        $Flush
+    )
+
+    $traceType = [RemoteWrench.Ext.ExtDefinition].Assembly.GetType('RemoteWrench.Ext.ExtTrace')
+    if ($Flush) {
+        $traceType.GetMethod('Flush').Invoke($null, @())
+    }
+    else {
+        $traceType.GetProperty('Enabled').SetValue($null, $Enabled)
     }
 }
 
@@ -511,6 +537,7 @@ Function Invoke-ExtTestCommand {
     # A remote command that writes an error and finishes straight away has
     # been seen to lose the error on slow CI runners. Waiting a little after
     # the command keeps it running until the error is sent.
+    $null = Set-ExtTrace -Flush
     $pipeline = $Runspace.CreatePipeline("$Command`nStart-Sleep -Milliseconds 100")
     if ($PipelineName) {
         Set-Variable -Name $PipelineName -Value $pipeline -Scope Global
@@ -523,8 +550,10 @@ Function Invoke-ExtTestCommand {
             $output = @($pipeline.Output.NonBlockingRead())
             $errors = @($pipeline.Error.NonBlockingRead() | ForEach-Object ToString)
             $pipeline.StopAsync()
+            $trace = @(Set-ExtTrace -Flush | Select-Object -Last 80) -join "`n"
             throw ("Command '$Command' did not finish within $TimeoutSeconds seconds, it output $($output.Count) " +
-                "objects, the last was '$(if ($output) { $output[-1] })', and errors '$($errors -join "', '")'.")
+                "objects, the last was '$(if ($output) { $output[-1] })', and errors '$($errors -join "', '")'. " +
+                "The end of the client trace:`n$trace")
         }
         Start-Sleep -Milliseconds 10
     }

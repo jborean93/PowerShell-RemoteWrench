@@ -105,6 +105,7 @@ internal sealed class ExtChannel
             read++;
             if (read % ReadReportInterval == 0)
             {
+                ExtTrace.Write($"{Id} read {read}");
                 _session.Enqueue(new(Id, ExtMessageKind.Read, read));
             }
         }

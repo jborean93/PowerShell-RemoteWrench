@@ -219,8 +219,9 @@ Describe "Enter-ExtSession" {
                 'Get-ClientFailure; "after failure"'
                 '"target defined $([bool](Get-Command Get-AliasTarget -ErrorAction SilentlyContinue))"'
                 'Exit-PSSession'
-                # Windows PowerShell runs this locally after exiting, PowerShell
-                # tries to run it in the closed session and says it's closed.
+                # PowerShell tries to run this in the closed session and says
+                # it's closed. Windows PowerShell reading commands from stdin
+                # doesn't leave a pushed session, it still runs remotely.
                 '"state $PID $($global:ExtTestRunspace.RunspaceStateInfo.State)"'
             ) -join "`n"
 
@@ -253,7 +254,9 @@ Describe "Enter-ExtSession" {
         # error is written to stderr so it isn't in order with the output.
         $outText | Should-BeLikeString "*Callback 'Get-ClientFailure' failed on the client: client failure*"
         $outText | Should-BeLikeString "*after failure*"
-        $outText | Should-MatchString "state $clientPid Closed|the session in which it was intended to run was either closed or broken"
+        if ($PSVersionTable.PSEdition -eq 'Core') {
+            $outText | Should-MatchString "state $clientPid Closed|the session in which it was intended to run was either closed or broken"
+        }
     }
 }
 

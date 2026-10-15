@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Management.Automation;
 using System.Management.Automation.Host;
@@ -233,10 +234,15 @@ internal sealed class ExtSession : IDisposable
     {
         try
         {
-            _dataSlots.Wait(cancellationToken);
+            if (!_dataSlots.Wait(0))
+            {
+                ExtTrace.Write($"{message.Id} waiting for a data slot");
+                _dataSlots.Wait(cancellationToken);
+            }
         }
         catch (OperationCanceledException)
         {
+            ExtTrace.Write($"{message.Id} dropped {message.Kind}, the channel is closed");
             return;
         }
 
@@ -258,6 +264,7 @@ internal sealed class ExtSession : IDisposable
 
     private void OnRemoteStateChanged(object? sender, RunspaceStateEventArgs e)
     {
+        ExtTrace.Write($"remote runspace {e.RunspaceStateInfo.State}");
         if (e.RunspaceStateInfo.State is RunspaceState.Closed or RunspaceState.Broken)
         {
             Dispose();
@@ -308,6 +315,7 @@ internal sealed class ExtSession : IDisposable
         {
             if (sequence != _nextSequence)
             {
+                ExtTrace.Write($"received {sequence} {message["Kind"]} early, waiting for {_nextSequence}");
                 _earlyMessages[sequence] = message;
                 return;
             }
@@ -329,6 +337,7 @@ internal sealed class ExtSession : IDisposable
     {
         string kind = LanguagePrimitives.ConvertTo<string>(message["Kind"]);
         string id = LanguagePrimitives.ConvertTo<string>(message["Id"]);
+        ExtTrace.Write($"{id} handling {message["Seq"]} {kind}");
         if (kind == "Open")
         {
             HandleOpen(id, message);
@@ -337,6 +346,7 @@ internal sealed class ExtSession : IDisposable
 
         if (!_channels.TryGetValue(id, out ExtChannel? channel))
         {
+            ExtTrace.Write($"{id} is not open, ignored {kind}");
             return;
         }
 
@@ -426,6 +436,7 @@ internal sealed class ExtSession : IDisposable
             failure = FormatException(e);
         }
 
+        ExtTrace.Write($"{context.Channel.Id} callback ended, failure: {failure ?? "none"}");
         if (_channels.TryRemove(context.Channel.Id, out _))
         {
             Enqueue(new(context.Channel.Id, ExtMessageKind.End, null, failure));
@@ -505,18 +516,23 @@ internal sealed class ExtSession : IDisposable
                 }
             }
 
+            Stopwatch sw = Stopwatch.StartNew();
             try
             {
                 Send(batch);
+                ExtTrace.Write($"sent {batch.Count} messages ({dataCount} data) in {sw.ElapsedMilliseconds}ms");
             }
             catch (Exception e) when (IsPipelineStopped(e))
             {
+                ExtTrace.Write($"send of {batch.Count} messages stopped: {e.Message}");
                 // The command that called the callback was stopped, like with
                 // Ctrl+C, which stops this too. The server closes the
                 // callback.
             }
             catch (Exception e)
             {
+                ExtTrace.Write($"send of {batch.Count} messages failed after {sw.ElapsedMilliseconds}ms: {e}");
+
                 // The server stops waiting for the client after a while, the
                 // callbacks are failed here so they stop too.
                 HashSet<string> names = new(StringComparer.OrdinalIgnoreCase);
@@ -576,9 +592,11 @@ internal sealed class ExtSession : IDisposable
             }
             stopped = result;
             _pingFailures = 0;
+            ExtTrace.Write($"pinged {ids.Length} channels, {result.Count} stopped");
         }
-        catch
+        catch (Exception e)
         {
+            ExtTrace.Write($"ping of {ids.Length} channels failed ({_pingFailures + 1}): {e.Message}");
             // A nested pipeline can only run while a command runs, the
             // command that called them has ended if it keeps failing. The
             // exception doesn't say why it failed, other than in its message,
@@ -595,6 +613,7 @@ internal sealed class ExtSession : IDisposable
         {
             if (_channels.TryRemove(id, out ExtChannel? channel))
             {
+                ExtTrace.Write($"{id} closed by the ping");
                 channel.Close();
             }
         }
@@ -693,6 +712,7 @@ internal sealed class ExtSession : IDisposable
         {
             return;
         }
+        ExtTrace.Write($"disposing with {_channels.Count} open channels");
 
         // The events are gone once the runspace is disposed.
         if (_remote.Events is { } remoteEvents)
