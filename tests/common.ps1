@@ -394,3 +394,196 @@ namespace RemoteWrenchTests
         $runspace.Dispose()
     }
 }
+
+# Starts a PowerShell process of the same edition as this one for the
+# Enter-ExtSession tests to connect to over its named pipe, the transport used
+# by Enter-PSHostProcess. Stop it with Stop-Process.
+Function Start-ExtTarget {
+    [OutputType([System.Diagnostics.Process])]
+    [CmdletBinding()]
+    param ()
+
+    $psi = [System.Diagnostics.ProcessStartInfo]::new(
+        [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName,
+        '-NoProfile -NonInteractive -Command "Start-Sleep -Seconds 600"')
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    [System.Diagnostics.Process]::Start($psi)
+}
+
+# Opens a runspace to a process from Start-ExtTarget. Its named pipe is only
+# there once it has started, retry until it is.
+Function New-ExtTargetRunspace {
+    [OutputType([System.Management.Automation.Runspaces.Runspace])]
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Process]
+        $Process
+    )
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($true) {
+        $connInfo = [System.Management.Automation.Runspaces.NamedPipeConnectionInfo]::new($Process.Id)
+        $connInfo.OpenTimeout = 5000
+        $runspace = [RunspaceFactory]::CreateRunspace(
+            $connInfo,
+            $Host,
+            [System.Management.Automation.Runspaces.TypeTable]::LoadDefaultTypeFiles())
+        try {
+            $runspace.Open()
+            return $runspace
+        }
+        catch {
+            $runspace.Dispose()
+            if ($sw.Elapsed.TotalSeconds -gt 60) {
+                throw
+            }
+            Start-Sleep -Milliseconds 200
+        }
+    }
+}
+
+# Sets up the Enter-ExtSession functions in a runspace from
+# New-ExtTargetRunspace without entering it. The tests can't push a runspace
+# so this calls what Enter-ExtSession does before it pushes.
+Function Initialize-ExtTestSession {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [System.Management.Automation.Runspaces.Runspace]
+        $Runspace,
+
+        [Parameter()]
+        [AllowEmptyCollection()]
+        [RemoteWrench.Ext.ExtDefinition[]]
+        $Function = @(),
+
+        [Parameter()]
+        [int]
+        $AckTimeoutMs = 10000
+    )
+
+    # Invoke-ExtTestCommand shows the trace if a command doesn't finish.
+    Set-ExtTrace -Enabled $true
+
+    $sessionType = [RemoteWrench.Ext.ExtDefinition].Assembly.GetType('RemoteWrench.Ext.ExtSession')
+    $definitions = [System.Collections.Generic.List[RemoteWrench.Ext.ExtDefinition]]::new()
+    foreach ($f in $Function) {
+        $definitions.Add($f)
+    }
+    try {
+        $null = $sessionType.GetMethod('Create').Invoke($null, @(
+            $Runspace,
+            [Runspace]::DefaultRunspace,
+            $Host,
+            $definitions,
+            $AckTimeoutMs))
+    }
+    catch [System.Reflection.TargetInvocationException] {
+        throw $_.Exception.InnerException
+    }
+}
+
+# Turns the client side trace of the sessions on or off, or with -Flush
+# removes and outputs its entries.
+Function Set-ExtTrace {
+    [CmdletBinding()]
+    param (
+        [Parameter(ParameterSetName = 'Enabled')]
+        [bool]
+        $Enabled,
+
+        [Parameter(ParameterSetName = 'Flush')]
+        [switch]
+        $Flush
+    )
+
+    $traceType = [RemoteWrench.Ext.ExtDefinition].Assembly.GetType('RemoteWrench.Ext.ExtTrace')
+    if ($Flush) {
+        $traceType.GetMethod('Flush').Invoke($null, @())
+    }
+    else {
+        $traceType.GetProperty('Enabled').SetValue($null, $Enabled)
+    }
+}
+
+# Runs a command in the remote runspace the way the interactive prompt of an
+# entered session does. It loops while it waits so this runspace runs the
+# client scripts of callbacks, which it does when it is idle in a real
+# session.
+Function Invoke-ExtTestCommand {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [System.Management.Automation.Runspaces.Runspace]
+        $Runspace,
+
+        [Parameter(Mandatory)]
+        [string]
+        $Command,
+
+        [Parameter()]
+        [int]
+        $TimeoutSeconds = 30,
+
+        # A global variable set to the running pipeline so a client script
+        # can stop it.
+        [Parameter()]
+        [string]
+        $PipelineName
+    )
+
+    # A remote command that writes an error and finishes straight away has
+    # been seen to lose the error on slow CI runners. Waiting a little after
+    # the command keeps it running until the error is sent.
+    $null = Set-ExtTrace -Flush
+    $pipeline = $Runspace.CreatePipeline("$Command`nStart-Sleep -Milliseconds 100")
+    if ($PipelineName) {
+        Set-Variable -Name $PipelineName -Value $pipeline -Scope Global
+    }
+    $pipeline.InvokeAsync()
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($pipeline.PipelineStateInfo.State -in 'NotStarted', 'Running', 'Stopping') {
+        if ($sw.Elapsed.TotalSeconds -gt $TimeoutSeconds) {
+            # Say how far it got, it helps to know where it stopped.
+            $output = @($pipeline.Output.NonBlockingRead())
+            $errors = @($pipeline.Error.NonBlockingRead() | ForEach-Object ToString)
+            $pipeline.StopAsync()
+            $trace = @(Set-ExtTrace -Flush | Select-Object -Last 80) -join "`n"
+            throw ("Command '$Command' did not finish within $TimeoutSeconds seconds, it output $($output.Count) " +
+                "objects, the last was '$(if ($output) { $output[-1] })', and errors '$($errors -join "', '")'. " +
+                "The end of the client trace:`n$trace")
+        }
+        Start-Sleep -Milliseconds 10
+    }
+
+    # The state can change before the last output and errors are added, they
+    # are all there once the readers are closed.
+    $sw.Restart()
+    while (($pipeline.Output.IsOpen -or $pipeline.Error.IsOpen) -and $sw.Elapsed.TotalSeconds -lt 10) {
+        Start-Sleep -Milliseconds 10
+    }
+
+    # A terminating error at the top level fails the pipeline rather than
+    # being written to its error stream.
+    $errorRecords = @($pipeline.Error.NonBlockingRead())
+    if ($pipeline.PipelineStateInfo.State -eq 'Failed') {
+        $reason = $pipeline.PipelineStateInfo.Reason
+        if ($reason.ErrorRecord) {
+            $errorRecords += $reason.ErrorRecord
+        }
+        else {
+            $errorRecords += [System.Management.Automation.ErrorRecord]::new($reason, 'PipelineFailed', 'NotSpecified', $null)
+        }
+    }
+    $errors = @($errorRecords | ForEach-Object { $_.ToString() })
+
+    [PSCustomObject]@{
+        Output = @($pipeline.Output.NonBlockingRead())
+        Errors = $errors
+        ErrorRecords = $errorRecords
+        State = $pipeline.PipelineStateInfo.State
+        Reason = $pipeline.PipelineStateInfo.Reason
+    }
+}

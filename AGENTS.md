@@ -7,9 +7,11 @@ project is built and tested.
 ## What this project is
 
 RemoteWrench is a cross platform PowerShell 7.4+ and Windows PowerShell 5.1 binary module written in C#.
-It currently provides `ConvertTo-PSRPPacket` and `Format-PSRPPacket` to parse
-and display the packets of the PowerShell Remoting Protocol (PSRP) OutOfProc
-transport.
+It provides `ConvertTo-PSRPPacket` and `Format-PSRPPacket` to parse and
+display the packets of the PowerShell Remoting Protocol (PSRP) OutOfProc
+transport, and `Enter-ExtSession` to enter a remote session with extension
+functions from `New-ExtFunction` and `New-ExtCallback`, callbacks run code on
+the client.
 
 ## Repository layout
 
@@ -19,7 +21,7 @@ transport.
 | `manifest.psd1` | Pinned versions of the PowerShell build/test modules (InvokeBuild, Pester, Microsoft.PowerShell.PlatyPS, PSResourceGet, OpenAuthenticode). |
 | `global.json` | Pins the .NET SDK (10.0.x) and selects `Microsoft.Testing.Platform` as the `dotnet test` runner. |
 | `RemoteWrench.slnx` | Solution file listing the `src/` projects. |
-| `src/RemoteWrench/` | The PowerShell module assembly. Cmdlets live in `Commands/`. `OutOfProcPacket.cs` parses the OutOfProc packets and reassembles the PSRP fragments, `Formatting/` decodes the messages (`MessageDecoder.cs`) and renders the `Format-PSRPPacket` views (`Views/`). Targets `net8.0` for PowerShell 7.4+ and `net472` for Windows PowerShell 5.1, compiling against the `System.Management.Automation` reference assembly of each, PowerShell provides it at runtime. |
+| `src/RemoteWrench/` | The PowerShell module assembly. Cmdlets live in `Commands/`. `OutOfProcPacket.cs` parses the OutOfProc packets and reassembles the PSRP fragments, `Formatting/` decodes the messages (`MessageDecoder.cs`) and renders the `Format-PSRPPacket` views (`Views/`). `Ext/` is `Enter-ExtSession`: `ExtSession.cs` is the client side, `ExtServer.ps1` is embedded and run in the remote session to define the functions, it must stay compatible with Windows PowerShell 5.1. `Builtin/` has the embedded server scripts of the callbacks written in C#, like the file transfer ones. See `docs/en-US/RemoteWrench/about_ExtSession.md` for how they talk to each other. Targets `net8.0` for PowerShell 7.4+ and `net472` for Windows PowerShell 5.1, compiling against the `System.Management.Automation` reference assembly of each, PowerShell provides it at runtime. |
 | `src/RemoteWrench.Loader/` | Tiny `AssemblyLoadContext` used by `module/RemoteWrench.psm1` to isolate the module's dependencies from the host process. It resolves them from `bin/<tfm>/RemoteWrench.deps.json`, see "Dependencies and the load context". `tests/Alc.Tests.ps1` checks what lands in which context. |
 | `src/Directory.Build.props` | Shared compiler settings (nullable enabled, unsafe allowed, code style enforced). |
 | `src/Directory.Packages.props` | Central package management. All NuGet versions live here; `.csproj` files reference packages without a `Version`. |
@@ -27,9 +29,10 @@ transport.
 | `docs/en-US/RemoteWrench/` | Microsoft.PowerShell.PlatyPS markdown help. Cmdlet pages are compiled to MAML at build time. An `about_*.md` page would be copied as `about_*.help.txt`, only add one for conceptual docs too long for the cmdlet pages. Run `tools/UpdateDocs.ps1` to sync the syntax and parameter metadata. |
 | `tests/*.Tests.ps1` | Pester tests that run against the built module. |
 | `tests/common.ps1` | Helper functions shared by the Pester files, like building PSRP messages, fragments, and Data packets or reading `tests/data/`. Dot-sourced by every Pester file, it does not import the module. |
+| `tests/Enter-ExtSession.Tests.ps1` | Tests `Enter-ExtSession` and the functions it defines against a child PowerShell process over its named pipe (`Start-ExtTarget`), `tests/New-Ext*.Tests.ps1` test the `New-Ext*` cmdlets and the callbacks they create the same way. A pushed runspace can't be tested in process, `Initialize-ExtTestSession` sets the functions up without pushing and `Invoke-ExtTestCommand` runs a command the way the interactive prompt does. One test enters for real through a child `pwsh -Command -` reading commands from stdin, one statement per line. |
 | `tests/data/` | OutOfProc logs the PSRP tests share. `large-psrp-packet.txt` is a captured message split across three Data packets. `psrp-session.txt` is a captured `Start-Job` session with every output stream and a stopped job. `psrp-message-types.txt` is captured runspace pool operations, scope and quoting cases, user events and command metadata, plus synthetic `ConnectRunspacePool`, `RunspacePoolInitData` and runspace pool host call messages that cannot be produced over OutOfProc. `psrp-create-pipeline.txt` is captured `CreatePipeline` messages of the `[PowerShell]` API permutations. `psrp-fragments.txt` is the session re-fragmented into 1.4KB fragments packed several to a packet, with a concurrent pipeline and runspace pool messages interleaved. The user and host names in the captures were replaced. |
 | `tests/units/<Project>/` | .NET unit test projects (TUnit), none yet. Each directory is discovered and run automatically by the `Test` task. |
-| `tools/` | Scripts used by `build.ps1`. `InvokeBuild.ps1` defines the tasks; `common.ps1` holds the `Manifest` class and helpers. `UpdateDocs.ps1` regenerates the markdown help from the built module. `ReplayPSRPLog.ps1` replays an OutOfProc log line by line with a delay, to see how `Format-PSRPPacket` handles a session in progress. |
+| `tools/` | Scripts used by `build.ps1`. `InvokeBuild.ps1` defines the tasks; `common.ps1` holds the `Manifest` class and helpers. `UpdateDocs.ps1` regenerates the markdown help from the built module. |
 | `output/` | Git-ignored. Built module, nupkg, downloaded PowerShell versions, cached build modules, and test results all land here. Never commit or hand-edit it. |
 | `CHANGELOG.md` | Update under the top (unreleased) heading for any user-visible change. |
 
